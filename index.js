@@ -1,51 +1,69 @@
 const express = require('express');
-const axios = require('axios');
+const { TelegramClient } = require('telegram');
+const { StringSession } = require('telegram/sessions');
+const input = require('input');
+
 const app = express();
+const PORT = process.env.PORT || 10000;
 
-app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-// Aapka Bot Token aur Private Group Chat ID yahan set hai
-const TELEGRAM_BOT_TOKEN = '9190163436:AAGq3d8bX1yZQx__V92WPXB083gboEfp-zw';
-const TELEGRAM_CHAT_ID = '-1004430289455'; 
+app.use(express.json());
 
 app.get('/', (req, res) => {
-    res.send(`
-        <html>
-        <head><title>Guruvidhya Class Uploader</title></head>
-        <body style="font-family: Arial; padding: 30px;">
-            <h2>📚 Guruvidhya to Telegram Uploader</h2>
-            <form action="/send-class" method="POST">
-                <label>Class Title / Subject:</label><br>
-                <input type="text" name="title" style="width: 300px; padding: 8px; margin-bottom: 10px;" required><br>
-                
-                <label>Video / Class Link:</label><br>
-                <input type="text" name="link" style="width: 300px; padding: 8px; margin-bottom: 15px;" required><br>
-                
-                <button type="submit" style="background: green; color: white; padding: 10px 20px; border: none; cursor: pointer;">Send to Telegram</button>
-            </form>
-        </body>
-        </html>
-    `);
+  res.send(`
+    <h2>Guruvidhya Auto Forwarder is Live!</h2>
+    <p>Userbot is running in the background and listening for classes.</p>
+  `);
 });
 
-app.post('/send-class', async (req, res) => {
-    const { title, link } = req.body;
-    const message = `🚨 **Nai class live ho gayi hai!** 🚨\n\n📖 **Vishay:** ${title}\n🔗 **Dekhne ke liye click karein:** ${link}\n\n_Powered by Guruvidhya & Koyeb Edge Network_`;
-
-    try {
-        await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
-            chat_id: TELEGRAM_CHAT_ID,
-            text: message,
-            parse_mode: 'Markdown'
-        });
-        res.send('<h3>✅ Class safaltapoorvak aapke Telegram Group par bhej di gayi hai! <a href="/">Wapas Jayein</a></h3>');
-    } catch (error) {
-        res.send('<h3>❌ Bhejane me kuch galti hui hai. Kripya bot ki admin permissions check karein.</h3>');
-    }
-});
-
-const PORT = process.env.PORT || 8000;
 app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
+  console.log(`Server is running on port ${PORT}`);
 });
+
+const apiId = parseInt(process.env.API_ID || '31084727');
+const apiHash = process.env.API_HASH || '7e214b1c8f2d583856293f0975e465a6';
+const stringSession = new StringSession(process.env.SESSION_STRING || '');
+
+const SOURCE_CHAT_ID = -1003994160445; // Guruvidhya source group
+const DEST_CHAT_ID = -1004430289455;   // Your private destination group
+
+(async () => {
+  console.log("Starting Telegram Userbot...");
+  
+  const client = new TelegramClient(stringSession, apiId, apiHash, {
+    connectionRetries: 5,
+  });
+
+  await client.start({
+    phoneNumber: async () => await input.text("Please enter your number: "),
+    password: async () => await input.text("Please enter your password (2FA): "),
+    phoneCode: async () => await input.text("Please enter the code you received: "),
+    onError: (err) => console.log(err),
+  });
+
+  console.log("Userbot is successfully connected!");
+  console.log("SESSION_STRING:", client.session.save());
+
+  client.addEventHandler(async (event) => {
+    const message = event.message;
+    if (!message) return;
+
+    if (message.peerId && message.peerId.channelId) {
+      const chatId = Number("-100" + message.peerId.channelId.toString());
+      
+      if (chatId === SOURCE_CHAT_ID) {
+        console.log("New class message detected from source group!");
+        try {
+          await client.sendMessage(DEST_CHAT_ID, {
+            message: message.text || "New Class Notification",
+            file: message.media || undefined,
+          });
+          console.log("Class successfully forwarded to your group!");
+        } catch (err) {
+          console.error("Error forwarding message:", err);
+        }
+      }
+    }
+  });
+
+})();
